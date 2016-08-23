@@ -4,8 +4,14 @@ require 'Nokogiri'
 @per_event_hash = Hash.new
 
 def parse_results(result_file)
-  puts "computing file:#{result_file}"
 
+  multiplier = 1
+  if (result_file.start_with?("#{@url_root}2x"))
+    result_file = result_file.gsub("2x","")
+    multiplier = 2
+  end
+
+  puts "computing file:#{result_file}"
   published_results = Nokogiri::HTML(open(result_file))
 
   rows = published_results.css('tr')
@@ -28,6 +34,7 @@ def parse_results(result_file)
         distance = detail[name]
       end
       detail[:distance] = distance
+      detail[:multiplier] = multiplier
     end
     temp_array = detail[:age_group_line].split(' ')
     detail[:age_group_rank] = temp_array[0]
@@ -36,6 +43,7 @@ def parse_results(result_file)
     detail
   end
   #puts details
+  details = details.select { |detail| !detail[:name].nil? && !detail[:name].empty? }
 
   if !@per_event_hash.key?(result_file)
     @per_event_hash[result_file] = details
@@ -44,11 +52,11 @@ def parse_results(result_file)
 end
 
 def get_distance_category(distance)
-  return "Short" if ["4 mi","5 mi","6 mi","7 mi","8 mi","9 mi","10 mi","10 Km"].include?(distance)
+  return "Short" if ["5 Km","5 km","4 mi","5 mi","6 mi","7 mi","8 mi","9 mi","10 mi","10 KM","10 Km","10 km","15 Km"].include?(distance)
   return "Half" if ["Half Marathon","11 mi","12 mi","13 mi","14 mi"].include?(distance)
-  return "Long" if ["15 mi","16 mi","17 mi","18 mi","19 mi","20 mi","21 mi","22 mi","30 Km","25 Km"].include?(distance)
+  return "Long" if ["15 mi","16 mi","17 mi","18 mi","19 mi","20 mi","21 mi","22 mi","30 KM","25 KM","30 Km","25 Km"].include?(distance)
   return "Marathon" if ["Marathon"].include?(distance)
-  return "50k" if ["50 Km"].include?(distance)
+  return "50k" if ["50 KM","50 Km"].include?(distance)
   return "50m" if ["50 mi"].include?(distance)
   return "100m" if ["100 mi"].include?(distance)
   puts "unrecognized distance:#{distance}"
@@ -71,7 +79,7 @@ end
 def get_age_group(small_age_group)
   #sample input: ['M35-39']
   sex = small_age_group[0]
-  puts "small age group: #{small_age_group}"
+  #puts "small age group: #{small_age_group}"
   return if small_age_group.empty?
   split_ages = small_age_group[1..-1].split("-")
   if split_ages[1].to_i - split_ages[0].to_i == 9
@@ -92,10 +100,12 @@ def compute_results
         ten_year_age_group = get_age_group(age_group)
         distance = result[:distance]
         rank = result[:age_group_rank]
+        multiplier = result[:multiplier]
         distance_category = get_distance_category(distance)
-        points = get_points(rank)
+        points = get_points(rank, multiplier)
         rank_points ="#{rank}:#{points}:#{age_group}"
-        name = "#{result[:name]}-#{result[:age]}"
+        name = "#{result[:name].upcase}-#{result[:age]}"
+        puts "unrecognized AG for: #{name},#{age_group}" if age_group.nil? || age_group.empty?
 
         if !per_distance_hash.key?(distance_category)
           per_distance_hash[distance_category] = Hash.new
@@ -140,10 +150,11 @@ end
 @year = "16"
 
 #up to May 31st
-#events = %w[sr cs_wntr gg mm cm_wntr sf100 gp ac hl cin_spr]
+#events = %w[sr cs_wntr gg mm cm_wntr 2xsf100 gp ac hl cin_spr]
 
 #most recent
-events = %w[sr cs_wntr gg mm cm_wntr sf100 gp ac hl cin_spr bcf bigbasin50 cm_spr]
+events = %w[sr cs_wntr gg mm cm_wntr 2xsf100 gp ac hl cin_spr bcf 2xbigbasin50
+  cm_spr slr ql_smmr gg_smmr slc cs_smmr cin_smmr zrsf]
 
 events.each do |event|
   parse_results(generate_key(event, @year))
@@ -152,10 +163,23 @@ end
 #puts(@per_event_hash[generate_key('gg', @year)])
 
 per_distance_hash = compute_results
-puts per_distance_hash['Half']['M30-39']
+#puts per_distance_hash['Half']['M30-39']
+distances = per_distance_hash.keys
+puts "Distances discovered:#{distances}"
 
-#TODO: self discover the distances and categories
-list = compute_totals(per_distance_hash['Half']['M30-39'])
-list.each do |result|
-  puts "#{result[0]}:#{result[1]}pts"
+distances.each do |distance|
+  categories = per_distance_hash[distance].keys
+  #to do: sort the categories (alpha? or better?)
+  categories = categories.sort
+
+  categories.each do |category|
+    ranked_runner_list = compute_totals(per_distance_hash[distance][category])
+    if ranked_runner_list.size > 0
+      puts ""
+      puts "Category: #{distance}-#{category}"
+      ranked_runner_list.each do |result|
+        puts "#{result[0]}:#{result[1]}pts"
+      end
+    end
+  end
 end
